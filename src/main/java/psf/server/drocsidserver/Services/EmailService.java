@@ -4,6 +4,8 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
+import java.util.Objects;
+
 @Service
 public class EmailService {
 
@@ -22,5 +24,12 @@ public class EmailService {
         message.setText("Hesabınızı doğrulamak için aşağıdaki bağlantıya tıklayın:\n" + verificationUrl);
 
         mailSender.send(message);
+    }
+    public String urlBase(String ipAddress) {
+        String urlBase = "78.177.73.106";
+        if (Objects.equals(ipAddress, "192.168.1.100"))
+            urlBase = "shinypog.ddns.net";
+
+        return urlBase;
     }
 }

@@ -5,8 +5,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import psf.server.drocsidserver.Enums.AccountStatus;
 import psf.server.drocsidserver.Models.IpAddressModel;
-import psf.server.drocsidserver.Models.LoginModel;
-import psf.server.drocsidserver.Models.RegisterModel;
+import psf.server.drocsidserver.DTO.LoginModel;
+import psf.server.drocsidserver.DTO.RegisterModel;
 import psf.server.drocsidserver.Models.User;
 import psf.server.drocsidserver.Repository.UserRepository;
 import java.time.LocalDateTime;
@@ -50,112 +50,46 @@ public class UserService {
 
         return ResponseEntity.ok("User created successfully, Please check your email");
     }
-    // Verify Fonksiyonu
-    public ResponseEntity<String> verifyUser(String token) {
-        // Tokenin geçerliliğini kontrol ediyor.
-        if (!JwtUtil.isTokenExpired(token)) {
-            // Bu kısım ip doğrulaması olursa diye var.
-            // Subject de ':' var ise ip doğrulaması olduğunu anlıyor.
+    public void setVerificationToken(String verficationToken, User user) {
+        user.setVerificationToken(verficationToken);
+        user.setVerificationTokenExpiration(LocalDateTime.now().plusMinutes(10));
 
-            String subject = JwtUtil.extractSubject(token);
-            String subjectEmail;
-            String ipAddress;
-
-            if (subject.contains(":")) {
-                subjectEmail = subject.split(":")[0];
-                ipAddress = subject.split(":")[1];
-            }else{
-                subjectEmail = subject;
-                ipAddress = null;
-            }
-
-            Optional<User> optionalUser = userRepository.findUserByEmail(subjectEmail);
-
-            if (optionalUser.isPresent()) {
-                User user = optionalUser.get();
-
-                // Linkden gelen token ile kullanıcıya kayıtlı olan tokeni
-                // Karşılaştırıyorum. Eğer eşit değilse uyarı gönderiyorum.
-                if (!user.getVerificationToken().equals(token)) {
-                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid Verification Link");
-                }
-                // Kullanıcıya kayıtlı Tokenin sona erme süresini kontrol ediyorum
-                // Eğer token sona ermişse uyarı gönderiyorum.
-                if (!user.getVerificationTokenExpiration().isBefore(LocalDateTime.now())) {
-                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token is expired. Please Get New Verification Link");
-                }
-
-                AccountStatus userStatus = user.getStatus();
-
-                // Normal verify kısmı
-                if (userStatus == AccountStatus.UNVERIFIED) {
-                    user.setStatus(AccountStatus.VERIFIED);
-                    userRepository.save(user);
-                    return ResponseEntity.ok("Account Verified Successfully");
-                }else if (userStatus == AccountStatus.VERIFIED) {
-                    // Ip doğrulaması mı? Yoksa kayıtlı hesaba tekrardan verify linki
-                    // Atılmışmı diye kontrol ediyorum.
-                    if (ipAddress != null){
-                        IpAddressModel ipAddressModel = new IpAddressModel();
-                        ipAddressModel.setIpAddress(ipAddress);
-                        ipAddressModel.setUser(user);
-
-                        user.getIpAddresses().add(ipAddressModel);
-                        userRepository.save(user);
-                        return ResponseEntity.ok("Account Verified Successfully");
-                    }
-
-                    return ResponseEntity.ok("User Already Verified");
-                }else{
-                    // Bu kısım hesap banlanmışsa çalışıyor ve banlı hesabı
-                    // Doğrulayamıyoruz.
-                    return ResponseEntity.ok("Your Account is Disabled. Please Contact Administrator");
-                }
-            }
-
-            return ResponseEntity.ok("User Not Found. Try Again or Contact Administrator");
-        }
-
-        return ResponseEntity.ok("Your Verification Link is Expired. Please get new Verification Link.");
+        userRepository.save(user);
     }
-    // Login Fonksiyonu
-    public ResponseEntity<String> loginUser(LoginModel loginModel, String ipAddress) {
+    public User getUserBySubject(String subject) {
         // Kullanıcıyı repositoryden bulma
         // İlk başta Email ile bulmaya çalışıyor bulamaz ise
-        // Username ile bulmaya çalışıyor. eğer bulamazise NULL dönüyor.
-        Optional<User> optionalUser = Optional.ofNullable(userRepository.findUserByEmail(loginModel.getUsername())
-                .orElse(userRepository.findUserByUsername(loginModel.getUsername())
+        // Username ile bulmaya çalışıyor. eğer bulamaz ise NULL dönüyor.
+        Optional<User> optionalUser = Optional.ofNullable(userRepository.findUserByEmail(subject)
+                .orElse(userRepository.findUserByUsername(subject)
                         .orElse(null)));
 
-        // Kullanıcı gerçekten var ise
-        if (optionalUser.isPresent()) {
-            User user = optionalUser.get();
+        return optionalUser.orElse(null);
+    }
+    public void verifyUserIpAddress(String ipAddress, User user) {
+        IpAddressModel ipAddressModel = new IpAddressModel();
+        ipAddressModel.setIpAddress(ipAddress);
+        ipAddressModel.setAssignedAt(LocalDateTime.now());
+        ipAddressModel.setUser(user);
 
-            // User'a kayıtlı ip adreslerinden bir tanesi şuankine eşit ise
-            // Userın şifresiyle loginModel deki şifreyi kontrol ediyor
-            for (IpAddressModel userIpAdresses: user.getIpAddresses()){
-                if (userIpAdresses.getIpAddress().equals(ipAddress)){
-                    if (PasswordEncryption.checkPassword(loginModel.getPassword(), user.getPassword())) {
-                        return ResponseEntity.ok(JwtUtil.generateToken(loginModel.getUsername(), 999999999));
-                    }else{
-                        return ResponseEntity.ok("Invalid Password");
-                    }
-                }
-            }
+        user.getIpAddresses().add(ipAddressModel);
+        userRepository.save(user);
+    }
+    public User findUserByToken(String token) {
+        String subject = JwtUtil.extractSubject(token);
+        String subjectEmail;
 
-            // Bu kısım kayıtlı ip adreslerinden bir tanesi bile şuankine eşit olmayınca
-            // Email hesabına(Bu sefer ip'li doğrulama) tekrardan doğrulama linki gönderiliyor
-
-            String verficationToken = SendVerificationEmail(user.getEmail() + ":" + ipAddress, ipAddress);
-
-            user.setVerificationToken(verficationToken);
-            user.setVerificationTokenExpiration(LocalDateTime.now().plusMinutes(10));
-
-            userRepository.save(user);
-            return ResponseEntity.ok("New IP Address is Detected. Please Check Your Email");
+        if (subject.contains(":")) {
+            subjectEmail = subject.split(":")[0];
+        }else{
+            subjectEmail = subject;
         }
 
-        return ResponseEntity.ok("Invalid User");
+        Optional<User> optionalUser = Optional.ofNullable(userRepository.findUserByEmail(subjectEmail)
+                .orElse(userRepository.findUserByUsername(subjectEmail).orElse(null)));
+
+        return optionalUser.orElse(null);
+
     }
     // Hesap Devre Dışı Bırakma Fonksiyonu
     public void DisableAccount(String token) {

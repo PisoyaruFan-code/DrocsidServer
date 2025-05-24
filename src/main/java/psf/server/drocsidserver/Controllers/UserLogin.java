@@ -1,11 +1,13 @@
 package psf.server.drocsidserver.Controllers;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import psf.server.drocsidserver.Models.LoginModel;
-import psf.server.drocsidserver.Models.RegisterModel;
+import psf.server.drocsidserver.DTO.LoginModel;
+import psf.server.drocsidserver.DTO.RegisterModel;
+import psf.server.drocsidserver.Services.AuthService;
 import psf.server.drocsidserver.Services.JwtUtil;
 import psf.server.drocsidserver.Services.UserService;
 
@@ -22,13 +24,15 @@ public class UserLogin {
     private final List<String> restrictedIps = new ArrayList<>();
 
     private final UserService userService;
+    private final AuthService authService;
 
-    public UserLogin(UserService userService) {
+    public UserLogin(UserService userService, AuthService authService) {
         this.userService = userService;
+        this.authService = authService;
     }
 
     @PostMapping("/register")
-    public ResponseEntity<String> register(@RequestBody RegisterModel registerModel, HttpServletRequest request) {
+    public ResponseEntity<String> register(@Valid @RequestBody RegisterModel registerModel, HttpServletRequest request) {
         String ip = getClientIp(request);
         Ips.add(ip);
 
@@ -36,10 +40,10 @@ public class UserLogin {
     }
     @GetMapping("/verify")
     public ResponseEntity<String> verify(@RequestParam String token, HttpServletRequest request) {
-        return userService.verifyUser(token);
+        return authService.verifyUser(token, getClientIp(request));
     }
     @PostMapping("/login")
-    public ResponseEntity<String> login(@RequestBody LoginModel LoginModel, HttpServletRequest request) {
+    public ResponseEntity<String> login(@Valid @RequestBody LoginModel LoginModel, HttpServletRequest request) {
         for (String ip : restrictedIps) {
             if (JwtUtil.extractSubject(ip).equals(getClientIp(request))) {
                 if (JwtUtil.isTokenExpired(ip)) {
@@ -59,7 +63,7 @@ public class UserLogin {
             }else {
                 LoginAttempts.put(getClientIp(request), 1);
             }
-            return userService.loginUser(LoginModel, getClientIp(request));
+            return authService.login(LoginModel, getClientIp(request));
         }
 
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
